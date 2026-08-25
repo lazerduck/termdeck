@@ -46,4 +46,9 @@ grep -F 'tested' <<< "$output" >/dev/null
 output=$(cd "$fixture/project" && PATH="$fixture/bin:$PATH" XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" pick --emit)
 grep -F 'execute' <<< "$output" >/dev/null
 grep -F 'task --dir' <<< "$output" >/dev/null
+
+result_file=$fixture/result
+(cd "$fixture/project" && PATH="$fixture/bin:$PATH" XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" pick --emit-to "$result_file")
+grep -F 'execute' "$result_file" >/dev/null
+grep -F 'task --dir' "$result_file" >/dev/null
 printf 'smoke test passed\n'

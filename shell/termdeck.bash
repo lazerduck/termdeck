@@ -9,11 +9,14 @@ else
 fi
 
 _termdeck_widget() {
-  local result mode command original_line
+  local result_file mode command original_line
   local -a lines
 
   original_line=$READLINE_LINE
-  mapfile -t lines < <("$_TERMDECK_BIN" pick --emit)
+  result_file=$(mktemp "${TMPDIR:-/tmp}/termdeck-result.XXXXXX") || return 1
+  "$_TERMDECK_BIN" pick --emit-to "$result_file"
+  mapfile -t lines < "$result_file"
+  rm -f "$result_file"
   ((${#lines[@]} >= 1)) || return 0
 
   mode=${lines[0]}
@@ -57,8 +60,7 @@ _termdeck_add_command() {
       --header='Select current prompt/history command'
   ) || return 0
 
-  printf '\n'
-  IFS= read -r -p 'Friendly name: ' name
+  name=$(_termdeck_text_prompt 'friendly name> ' '') || return 0
   [[ -n "$name" ]] || return 0
 
   scope=$(printf 'Global\nLocal\n' | fzf \
@@ -75,19 +77,29 @@ _termdeck_add_command() {
 _termdeck_edit_command() {
   local source=$1 old_name=$2 old_command=$3 name command scope
 
-  printf '\n'
-  IFS= read -r -p "Friendly name [$old_name]: " name
-  name=${name:-$old_name}
-  IFS= read -r -p "Command [$old_command]: " command
-  command=${command:-$old_command}
+  name=$(_termdeck_text_prompt 'friendly name> ' "$old_name") || return 0
+  [[ -n "$name" ]] || return 0
+  command=$(_termdeck_text_prompt 'command> ' "$old_command") || return 0
+  [[ -n "$command" ]] || return 0
 
   if [[ "$source" == 'Global command' ]]; then scope=--global; else scope=--local; fi
   "$_TERMDECK_BIN" add "$scope" --existing-name "$old_name" --name "$name" --command "$command"
 }
 
-# Kitty sends this otherwise-unused CSI-u sequence for Ctrl+Shift+P.
-bind -x '"\e[112;5u":_termdeck_widget'
+_termdeck_text_prompt() {
+  local prompt=$1 initial=$2 output
+  output=$(printf 'Press Enter to accept\n' | fzf \
+    --height=20% --layout=reverse --border=rounded \
+    --disabled --print-query --query="$initial" --prompt="$prompt" \
+    --header='Type a value and press Enter') || return 1
+  printf '%s\n' "${output%%$'\n'*}"
+}
 
-# Terminal-independent fallback. Remove this if you use Ctrl-G for Readline's
-# default abort action.
-bind -x '"\C-g":_termdeck_widget'
+if [[ $- == *i* ]]; then
+  # Kitty sends this otherwise-unused CSI-u sequence for Ctrl+Shift+P.
+  bind -x '"\e[112;5u":_termdeck_widget'
+
+  # Terminal-independent fallback. Remove this if you use Ctrl-G for
+  # Readline's default abort action.
+  bind -x '"\C-g":_termdeck_widget'
+fi

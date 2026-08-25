@@ -97,6 +97,7 @@ The installer preserves an existing global command file.
 
 ```bash
 ./tests/smoke.sh
+./tests/widget.sh
 ./tests/install.sh
 ```
 

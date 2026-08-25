@@ -246,6 +246,7 @@ catalog() {
 
 pick() {
   local emit=${1:-false}
+  local result_file=${2:-}
   local output key selection source name description command header
 
   if [[ "$emit" == true ]]; then
@@ -270,16 +271,27 @@ pick() {
   ) || return 1
 
   key=${output%%$'\n'*}
+  case "$key" in
+    enter|alt-enter|ctrl-n|ctrl-e) ;;
+    *)
+      # Older fzf releases do not prefix a normal Enter selection with the
+      # expected key, even when Enter is included in --expect.
+      key=enter
+      selection=$output
+      ;;
+  esac
   if [[ "$key" == ctrl-n ]]; then
     if [[ "$emit" == true ]]; then
-      printf 'add\n'
+      pick_result "$result_file" 'add\n'
     else
       printf '%s: saving from prompt/history requires the shell shortcut\n' "$PROGRAM" >&2
     fi
     return 0
   fi
-  selection=${output#*$'\n'}
-  [[ "$selection" != "$output" && -n "$selection" ]] || return 1
+  if [[ -z ${selection+x} ]]; then
+    selection=${output#*$'\n'}
+  fi
+  [[ -n "$selection" ]] || return 1
 
   IFS=$'\t' read -r source name description command <<< "$selection"
   [[ -n "$command" ]] || return 1
@@ -290,7 +302,7 @@ pick() {
       return 0
     fi
     if [[ "$emit" == true ]]; then
-      printf 'edit\n%s\n%s\n%s\n' "$source" "$name" "$command"
+      pick_result "$result_file" 'edit\n%s\n%s\n%s\n' "$source" "$name" "$command"
     else
       printf '%s: editing requires the shell shortcut\n' "$PROGRAM" >&2
     fi
@@ -299,9 +311,9 @@ pick() {
 
   if [[ "$emit" == true ]]; then
     if [[ "$key" == "alt-enter" ]]; then
-      printf 'insert\n%s\n' "$command"
+      pick_result "$result_file" 'insert\n%s\n' "$command"
     else
-      printf 'execute\n%s\n' "$command"
+      pick_result "$result_file" 'execute\n%s\n' "$command"
     fi
   elif [[ "$key" == "alt-enter" ]]; then
     # A child process cannot alter its parent shell's Readline buffer. This
@@ -310,6 +322,16 @@ pick() {
     printf '%s: source shell/termdeck.bash to insert at the prompt\n' "$PROGRAM" >&2
   else
     builtin eval -- "$command"
+  fi
+}
+
+pick_result() {
+  local result_file=$1 format=$2
+  shift 2
+  if [[ -n "$result_file" ]]; then
+    printf "$format" "$@" > "$result_file"
+  else
+    printf "$format" "$@"
   fi
 }
 
@@ -370,6 +392,10 @@ main() {
       case ${2:-} in
         '') pick false ;;
         --emit) pick true ;;
+        --emit-to)
+          [[ -n ${3:-} ]] || die '--emit-to needs a file'
+          pick true "$3"
+          ;;
         *) die "unknown pick option: $2" ;;
       esac
       ;;
