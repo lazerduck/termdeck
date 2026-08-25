@@ -1,0 +1,398 @@
+#!/usr/bin/env bash
+
+set -o pipefail
+
+PROGRAM=${0##*/}
+BUILD_VERSION='@VERSION@'
+[[ "$BUILD_VERSION" != @* ]] || BUILD_VERSION=0.1.0-dev
+VERSION=${TERMDECK_VERSION:-$BUILD_VERSION}
+GLOBAL_TASKFILE=${TERMDECK_GLOBAL_TASKFILE:-${XDG_CONFIG_HOME:-$HOME/.config}/termdeck/Taskfile.yml}
+GLOBAL_COMMANDS=${TERMDECK_GLOBAL_COMMANDS:-${XDG_CONFIG_HOME:-$HOME/.config}/termdeck/commands.yaml}
+LOCAL_COMMANDS=${TERMDECK_LOCAL_COMMANDS:-$PWD/.termdeck.yaml}
+SHARE_DIR=${TERMDECK_SHARE_DIR:-$HOME/.local/share/termdeck}
+
+die() {
+  printf '%s: %s\n' "$PROGRAM" "$*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+}
+
+find_local_taskfile() {
+  local candidate
+  for candidate in \
+    Taskfile.yml Taskfile.yaml taskfile.yml taskfile.yaml \
+    Taskfile.dist.yml Taskfile.dist.yaml taskfile.dist.yml taskfile.dist.yaml
+  do
+    if [[ -f "$PWD/$candidate" ]]; then
+      printf '%s\n' "$PWD/$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Emit: source label, friendly name, description, shell command.
+tasks_from() {
+  local source=$1 taskfile=$2 task_name command
+
+  while IFS=$'\t' read -r task_name description; do
+    [[ -n "$task_name" ]] || continue
+    if [[ "$source" == "Local task" ]]; then
+      printf -v command 'task --dir %q %q' "$PWD" "$task_name"
+    else
+      printf -v command 'task --taskfile %q %q' "$taskfile" "$task_name"
+    fi
+    printf '%s\t%s\t%s\t%s\n' "$source" "$task_name" "$description" "$command"
+  done < <(
+    task --taskfile "$taskfile" --list-all --json --no-status --sort alphanumeric \
+      | jq -r '.tasks[] | [.name, (.desc // "")] | @tsv'
+  )
+}
+
+# Termdeck owns these files, so it can safely add and update their entries.
+commands_from() {
+  local source=$1 file=$2
+  [[ -f "$file" ]] || return 0
+
+  python3 - "$source" "$file" <<'PY'
+import sys
+import yaml
+
+source, path = sys.argv[1:]
+try:
+    with open(path, encoding="utf-8") as handle:
+        document = yaml.safe_load(handle) or {}
+except (OSError, yaml.YAMLError) as exc:
+    print(f"termdeck: cannot read {path}: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+commands = document.get("commands", [])
+if not isinstance(commands, list):
+    print(f"termdeck: {path}: 'commands' must be a list", file=sys.stderr)
+    raise SystemExit(1)
+
+for entry in commands:
+    if not isinstance(entry, dict):
+        continue
+    name = str(entry.get("name", "")).replace("\t", " ").replace("\n", " ")
+    command = str(entry.get("command", ""))
+    description = str(entry.get("description", "")).replace("\t", " ").replace("\n", " ")
+    if name and command and "\n" not in command and "\t" not in command:
+        print("\t".join((source, name, description, command)))
+PY
+}
+
+save_command() {
+  local scope= name= command= description= existing_name= file
+
+  while (($#)); do
+    case $1 in
+      --global) scope=global ;;
+      --local) scope=local ;;
+      --name) shift; (($#)) || die '--name needs a value'; name=$1 ;;
+      --command) shift; (($#)) || die '--command needs a value'; command=$1 ;;
+      --description) shift; (($#)) || die '--description needs a value'; description=$1 ;;
+      --existing-name) shift; (($#)) || die '--existing-name needs a value'; existing_name=$1 ;;
+      *) die "unknown add option: $1" ;;
+    esac
+    shift
+  done
+
+  [[ -n "$scope" ]] || die 'add requires --global or --local'
+  [[ -n "$name" ]] || die 'add requires --name'
+  [[ -n "$command" ]] || die 'add requires --command'
+  [[ "$command" != *$'\n'* && "$command" != *$'\t'* ]] || die 'commands must be one line'
+
+  if [[ "$scope" == global ]]; then file=$GLOBAL_COMMANDS; else file=$LOCAL_COMMANDS; fi
+
+  python3 - "$file" "$name" "$command" "$description" "$existing_name" <<'PY'
+import os
+import sys
+import tempfile
+import yaml
+
+path, name, command, description, existing_name = sys.argv[1:]
+document = {}
+if os.path.exists(path):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            document = yaml.safe_load(handle) or {}
+    except yaml.YAMLError as exc:
+        print(f"termdeck: cannot update {path}: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+
+if not isinstance(document, dict):
+    print(f"termdeck: cannot update {path}: top level must be a mapping", file=sys.stderr)
+    raise SystemExit(1)
+
+commands = document.setdefault("commands", [])
+if not isinstance(commands, list):
+    print(f"termdeck: cannot update {path}: 'commands' must be a list", file=sys.stderr)
+    raise SystemExit(1)
+
+entry = {"name": name, "command": command}
+if description:
+    entry["description"] = description
+
+target_name = existing_name or name
+for index, existing in enumerate(commands):
+    if isinstance(existing, dict) and existing.get("name") == target_name:
+        commands[index] = entry
+        action = "updated"
+        break
+else:
+    commands.append(entry)
+    action = "added"
+
+document["version"] = document.get("version", 1)
+directory = os.path.dirname(path) or "."
+os.makedirs(directory, exist_ok=True)
+fd, temporary = tempfile.mkstemp(prefix=".termdeck-", suffix=".yaml", dir=directory, text=True)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        yaml.safe_dump(document, handle, sort_keys=False, allow_unicode=True)
+    os.replace(temporary, path)
+except BaseException:
+    try:
+        os.unlink(temporary)
+    except FileNotFoundError:
+        pass
+    raise
+
+print(f"{action} {name!r} in {path}")
+PY
+}
+
+setup_integration() {
+  local dry_run=false assume_yes=false answer timestamp
+  local bashrc=$HOME/.bashrc
+  local kitty_dir=${XDG_CONFIG_HOME:-$HOME/.config}/kitty
+  local kitty_conf=$kitty_dir/kitty.conf
+  local kitty_termdeck=$kitty_dir/termdeck.conf
+  local source_line="source '$SHARE_DIR/termdeck.bash'"
+  local include_line='include termdeck.conf'
+
+  while (($#)); do
+    case $1 in
+      --dry-run) dry_run=true ;;
+      -y|--yes) assume_yes=true ;;
+      *) die "unknown setup option: $1" ;;
+    esac
+    shift
+  done
+
+  [[ -f "$SHARE_DIR/termdeck.bash" ]] || die "shell integration not found at $SHARE_DIR/termdeck.bash; install termdeck first"
+
+  printf 'Termdeck will:\n'
+  grep -Fqx "$source_line" "$bashrc" 2>/dev/null || printf '  - load its Bash integration from %s\n' "$bashrc"
+  grep -Fqx "$include_line" "$kitty_conf" 2>/dev/null || printf '  - include its Kitty configuration from %s\n' "$kitty_conf"
+  printf '  - map Ctrl+Shift+P in Kitty and Ctrl-G in Bash\n'
+
+  if [[ "$dry_run" == true ]]; then
+    printf 'Dry run only; no files changed.\n'
+    return 0
+  fi
+
+  if [[ "$assume_yes" != true ]]; then
+    IFS= read -r -p 'Apply these changes? [y/N] ' answer
+    [[ "$answer" == y || "$answer" == Y || "$answer" == yes || "$answer" == YES ]] || {
+      printf 'Setup cancelled.\n'
+      return 0
+    }
+  fi
+
+  timestamp=$(date +%Y%m%d%H%M%S)
+  mkdir -p "$kitty_dir"
+  touch "$bashrc" "$kitty_conf"
+
+  if ! grep -Fqx "$source_line" "$bashrc"; then
+    cp -p "$bashrc" "$bashrc.termdeck-backup-$timestamp"
+    printf '\n# termdeck command palette\n%s\n' "$source_line" >> "$bashrc"
+    printf 'updated %s (backup created)\n' "$bashrc"
+  fi
+
+  if ! grep -Fqx "$include_line" "$kitty_conf"; then
+    cp -p "$kitty_conf" "$kitty_conf.termdeck-backup-$timestamp"
+    printf '\n# termdeck command palette\n%s\n' "$include_line" >> "$kitty_conf"
+    printf 'updated %s (backup created)\n' "$kitty_conf"
+  fi
+
+  cat > "$kitty_termdeck" <<'EOF'
+# Generated by termdeck setup.
+map ctrl+shift+p send_text all \x1b[112;5u
+EOF
+  printf 'wrote   %s\n' "$kitty_termdeck"
+  printf '\nOpen a new Kitty tab to use Ctrl+Shift+P, or reload Bash now with:\n'
+  printf '  source %q\n' "$SHARE_DIR/termdeck.bash"
+}
+
+catalog() {
+  local local_taskfile
+
+  commands_from 'Global command' "$GLOBAL_COMMANDS" || return
+  commands_from 'Local command' "$LOCAL_COMMANDS" || return
+
+  if [[ -f "$GLOBAL_TASKFILE" ]]; then
+    tasks_from 'Global task' "$GLOBAL_TASKFILE" || return
+  fi
+
+  if local_taskfile=$(find_local_taskfile); then
+    tasks_from 'Local task' "$local_taskfile" || return
+  fi
+}
+
+pick() {
+  local emit=${1:-false}
+  local output key selection source name description command header
+
+  if [[ "$emit" == true ]]; then
+    header='Enter: run   Alt-Enter: insert'
+  else
+    header='Enter: run   Alt-Enter: print command (insertion requires shell shortcut)'
+  fi
+
+  require_command fzf
+  output=$(
+    catalog | fzf \
+      --delimiter=$'\t' \
+      --with-nth=1,2,3 \
+      --nth=1,2,3 \
+      --expect=enter,alt-enter,ctrl-n,ctrl-e \
+      --height=70% \
+      --layout=reverse \
+      --border=rounded \
+      --prompt='termdeck> ' \
+      --header="$header   Ctrl-N: save   Ctrl-E: edit" \
+      --no-multi
+  ) || return 1
+
+  key=${output%%$'\n'*}
+  if [[ "$key" == ctrl-n ]]; then
+    if [[ "$emit" == true ]]; then
+      printf 'add\n'
+    else
+      printf '%s: saving from prompt/history requires the shell shortcut\n' "$PROGRAM" >&2
+    fi
+    return 0
+  fi
+  selection=${output#*$'\n'}
+  [[ "$selection" != "$output" && -n "$selection" ]] || return 1
+
+  IFS=$'\t' read -r source name description command <<< "$selection"
+  [[ -n "$command" ]] || return 1
+
+  if [[ "$key" == ctrl-e ]]; then
+    if [[ "$source" != 'Global command' && "$source" != 'Local command' ]]; then
+      printf '%s: Taskfile tasks are read-only\n' "$PROGRAM" >&2
+      return 0
+    fi
+    if [[ "$emit" == true ]]; then
+      printf 'edit\n%s\n%s\n%s\n' "$source" "$name" "$command"
+    else
+      printf '%s: editing requires the shell shortcut\n' "$PROGRAM" >&2
+    fi
+    return 0
+  fi
+
+  if [[ "$emit" == true ]]; then
+    if [[ "$key" == "alt-enter" ]]; then
+      printf 'insert\n%s\n' "$command"
+    else
+      printf 'execute\n%s\n' "$command"
+    fi
+  elif [[ "$key" == "alt-enter" ]]; then
+    # A child process cannot alter its parent shell's Readline buffer. This
+    # output remains useful when the picker is launched without integration.
+    printf '%s\n' "$command"
+    printf '%s: source shell/termdeck.bash to insert at the prompt\n' "$PROGRAM" >&2
+  else
+    builtin eval -- "$command"
+  fi
+}
+
+usage() {
+  cat <<EOF
+Usage: $PROGRAM [pick|list|add|setup|doctor|version]
+
+  pick    Open the command palette and run the selected task (default)
+  list    Print the merged global and local catalog
+  add     Add or update a Termdeck command
+  setup   Configure Bash and Kitty integration
+  doctor  Check required tools and show discovered Taskfiles
+  version Print the Termdeck version
+EOF
+}
+
+doctor() {
+  local local_taskfile status=0
+  for tool in task jq fzf; do
+    if command -v "$tool" >/dev/null 2>&1; then
+      printf 'ok       %-8s %s\n' "$tool" "$(command -v "$tool")"
+    else
+      printf 'missing  %s\n' "$tool"
+      status=1
+    fi
+  done
+  if python3 -c 'import yaml' >/dev/null 2>&1; then
+    printf 'ok       %-8s %s\n' PyYAML "$(python3 -c 'import yaml; print(yaml.__version__)')"
+  else
+    printf 'missing  PyYAML\n'
+    status=1
+  fi
+
+  if [[ -f "$GLOBAL_TASKFILE" ]]; then
+    printf 'global   %s\n' "$GLOBAL_TASKFILE"
+  else
+    printf 'global   not found (%s)\n' "$GLOBAL_TASKFILE"
+  fi
+  if [[ -f "$GLOBAL_COMMANDS" ]]; then
+    printf 'commands %s\n' "$GLOBAL_COMMANDS"
+  else
+    printf 'commands not found (%s)\n' "$GLOBAL_COMMANDS"
+  fi
+
+  if local_taskfile=$(find_local_taskfile); then
+    printf 'local    %s\n' "$local_taskfile"
+  else
+    printf 'local    not found in %s\n' "$PWD"
+  fi
+  return "$status"
+}
+
+main() {
+  case ${1:-pick} in
+    pick)
+      require_command task
+      require_command jq
+      case ${2:-} in
+        '') pick false ;;
+        --emit) pick true ;;
+        *) die "unknown pick option: $2" ;;
+      esac
+      ;;
+    list)
+      require_command task
+      require_command jq
+      catalog
+      ;;
+    add)
+      require_command python3
+      python3 -c 'import yaml' >/dev/null 2>&1 || die 'Python package PyYAML is required'
+      shift
+      save_command "$@"
+      ;;
+    setup)
+      shift
+      setup_integration "$@"
+      ;;
+    doctor) doctor ;;
+    version|-V|--version) printf 'termdeck %s\n' "$VERSION" ;;
+    -h|--help|help) usage ;;
+    *) usage >&2; exit 2 ;;
+  esac
+}
+
+main "$@"

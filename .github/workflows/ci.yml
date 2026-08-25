@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fzf jq python3-yaml
+          go install github.com/go-task/task/v3/cmd/task@v3.53.0
+      - name: Check shell syntax
+        run: bash -n bin/termdeck shell/termdeck.bash install.sh tests/smoke.sh tests/install.sh
+      - name: Test
+        run: |
+          ./tests/smoke.sh
+          ./tests/install.sh

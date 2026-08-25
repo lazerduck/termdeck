@@ -1,0 +1,6 @@
+version: 1
+commands:
+  - name: 'Docker: list all containers'
+    command: docker ps -a
+  - name: 'Git: recently updated branches'
+    command: git branch --sort=-committerdate
