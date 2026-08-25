@@ -26,16 +26,17 @@ XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" add --global --name 'Save
 
 output=$(cd "$fixture/project" && XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" list)
 
-grep -F $'Global task\tdocker:list-all\tDocker: list all containers' <<< "$output" >/dev/null
-grep -F $'Local task\ttest\tRun the tests' <<< "$output" >/dev/null
-grep -F $'Global command\tSaved status\t\tgit status' <<< "$output" >/dev/null
-grep -F $'Local command\tFriendly greeting\t\techo hi' <<< "$output" >/dev/null
-! grep -F $'Local command\tProject greeting\t' <<< "$output" >/dev/null
-[[ $(grep -Fc $'Global command\tSaved status\t' <<< "$output") -eq 1 ]]
+grep -F $'Global task\x1fdocker:list-all\x1fDocker: list all containers' <<< "$output" >/dev/null
+grep -F $'Local task\x1ftest\x1fRun the tests' <<< "$output" >/dev/null
+grep -F $'Global command\x1fSaved status\x1f\x1fgit status' <<< "$output" >/dev/null
+grep -F $'Local command\x1fFriendly greeting\x1f\x1fecho hi' <<< "$output" >/dev/null
+! grep -F $'Local command\x1fProject greeting\x1f' <<< "$output" >/dev/null
+[[ $(grep -Fc $'Global command\x1fSaved status\x1f' <<< "$output") -eq 1 ]]
 
 cat > "$fixture/bin/fzf" <<'BASH'
 #!/usr/bin/env bash
-selection=$(grep $'^Local task\ttest\t' | head -1)
+pattern=${TERMDECK_TEST_PATTERN:-$'Local task\x1ftest\x1f'}
+selection=$(grep -F "$pattern" | head -1)
 printf 'enter\n%s\n' "$selection"
 BASH
 chmod +x "$fixture/bin/fzf"
@@ -51,4 +52,12 @@ result_file=$fixture/result
 (cd "$fixture/project" && PATH="$fixture/bin:$PATH" XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" pick --emit-to "$result_file")
 grep -F 'execute' "$result_file" >/dev/null
 grep -F 'task --dir' "$result_file" >/dev/null
+
+saved_pattern=$'Local command\x1fFriendly greeting\x1f'
+output=$(cd "$fixture/project" && TERMDECK_TEST_PATTERN="$saved_pattern" PATH="$fixture/bin:$PATH" XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" pick)
+grep -F 'hi' <<< "$output" >/dev/null
+
+(cd "$fixture/project" && TERMDECK_TEST_PATTERN="$saved_pattern" PATH="$fixture/bin:$PATH" XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" pick --emit-to "$result_file")
+grep -Fqx 'execute' "$result_file"
+grep -Fqx 'echo hi' "$result_file"
 printf 'smoke test passed\n'

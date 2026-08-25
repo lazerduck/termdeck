@@ -10,6 +10,7 @@ GLOBAL_TASKFILE=${TERMDECK_GLOBAL_TASKFILE:-${XDG_CONFIG_HOME:-$HOME/.config}/te
 GLOBAL_COMMANDS=${TERMDECK_GLOBAL_COMMANDS:-${XDG_CONFIG_HOME:-$HOME/.config}/termdeck/commands.yaml}
 LOCAL_COMMANDS=${TERMDECK_LOCAL_COMMANDS:-$PWD/.termdeck.yaml}
 SHARE_DIR=${TERMDECK_SHARE_DIR:-$HOME/.local/share/termdeck}
+FIELD_SEPARATOR=$'\x1f'
 
 die() {
   printf '%s: %s\n' "$PROGRAM" "$*" >&2
@@ -45,7 +46,7 @@ tasks_from() {
     else
       printf -v command 'task --taskfile %q %q' "$taskfile" "$task_name"
     fi
-    printf '%s\t%s\t%s\t%s\n' "$source" "$task_name" "$description" "$command"
+    printf '%s\x1f%s\x1f%s\x1f%s\n' "$source" "$task_name" "$description" "$command"
   done < <(
     task --taskfile "$taskfile" --list-all --json --no-status --sort alphanumeric \
       | jq -r '.tasks[] | [.name, (.desc // "")] | @tsv'
@@ -81,7 +82,7 @@ for entry in commands:
     command = str(entry.get("command", ""))
     description = str(entry.get("description", "")).replace("\t", " ").replace("\n", " ")
     if name and command and "\n" not in command and "\t" not in command:
-        print("\t".join((source, name, description, command)))
+        print("\x1f".join((source, name, description, command)))
 PY
 }
 
@@ -258,7 +259,7 @@ pick() {
   require_command fzf
   output=$(
     catalog | fzf \
-      --delimiter=$'\t' \
+      --delimiter="$FIELD_SEPARATOR" \
       --with-nth=1,2,3 \
       --nth=1,2,3 \
       --expect=enter,alt-enter,ctrl-n,ctrl-e \
@@ -293,7 +294,7 @@ pick() {
   fi
   [[ -n "$selection" ]] || return 1
 
-  IFS=$'\t' read -r source name description command <<< "$selection"
+  IFS="$FIELD_SEPARATOR" read -r source name description command <<< "$selection"
   [[ -n "$command" ]] || return 1
 
   if [[ "$key" == ctrl-e ]]; then
