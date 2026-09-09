@@ -45,6 +45,7 @@ Inside the palette:
 | Alt-Enter | Insert it at the current prompt without executing |
 | Ctrl-N | Save the current prompt, a history entry, or another command |
 | Ctrl-E | Edit the selected Termdeck-owned command |
+| Alt-Up / Alt-Down | Move a saved command up or down |
 
 Termdeck stores its own commands in:
 
@@ -68,6 +69,7 @@ does not walk up through parent directories.
 ```text
 termdeck                   Open the palette
 termdeck add               Add a saved command using flags
+termdeck reorder           Move a saved command within its global or local list
 termdeck list              Print the merged catalog
 termdeck setup             Configure Bash and Kitty
 termdeck setup --dry-run   Preview setup changes
@@ -80,6 +82,8 @@ For example:
 ```bash
 termdeck add --global --name 'Docker: list all' --command 'docker ps -a'
 termdeck add --local --name 'Start development' --command 'npm run dev'
+termdeck reorder --global --name 'Docker: list all' --first
+termdeck reorder --local --name 'Start development' --down
 ```
 
 ## Install from a checkout

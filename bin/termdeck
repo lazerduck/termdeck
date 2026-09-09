@@ -167,6 +167,84 @@ print(f"{action} {name!r} in {path}")
 PY
 }
 
+reorder_command() {
+  local scope= name= direction= file
+
+  while (($#)); do
+    case $1 in
+      --global) scope=global ;;
+      --local) scope=local ;;
+      --name) shift; (($#)) || die '--name needs a value'; name=$1 ;;
+      --up|--down|--first|--last)
+        [[ -z "$direction" ]] || die 'reorder accepts only one position option'
+        direction=${1#--}
+        ;;
+      *) die "unknown reorder option: $1" ;;
+    esac
+    shift
+  done
+
+  [[ -n "$scope" ]] || die 'reorder requires --global or --local'
+  [[ -n "$name" ]] || die 'reorder requires --name'
+  [[ -n "$direction" ]] || die 'reorder requires --up, --down, --first, or --last'
+  if [[ "$scope" == global ]]; then file=$GLOBAL_COMMANDS; else file=$LOCAL_COMMANDS; fi
+
+  python3 - "$file" "$name" "$direction" <<'PY'
+import os
+import sys
+import tempfile
+import yaml
+
+path, name, direction = sys.argv[1:]
+try:
+    with open(path, encoding="utf-8") as handle:
+        document = yaml.safe_load(handle) or {}
+except (OSError, yaml.YAMLError) as exc:
+    print(f"termdeck: cannot reorder {path}: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+if not isinstance(document, dict) or not isinstance(document.get("commands"), list):
+    print(f"termdeck: {path}: 'commands' must be a list", file=sys.stderr)
+    raise SystemExit(1)
+
+commands = document["commands"]
+index = next(
+    (position for position, entry in enumerate(commands)
+     if isinstance(entry, dict) and entry.get("name") == name),
+    None,
+)
+if index is None:
+    print(f"termdeck: command not found: {name}", file=sys.stderr)
+    raise SystemExit(1)
+
+if direction == "up":
+    target = max(0, index - 1)
+elif direction == "down":
+    target = min(len(commands) - 1, index + 1)
+elif direction == "first":
+    target = 0
+else:
+    target = len(commands) - 1
+
+if target != index:
+    commands.insert(target, commands.pop(index))
+    directory = os.path.dirname(path) or "."
+    fd, temporary = tempfile.mkstemp(prefix=".termdeck-", suffix=".yaml", dir=directory, text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            yaml.safe_dump(document, handle, sort_keys=False, allow_unicode=True)
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+print(f"moved {name!r} {direction} in {path}")
+PY
+}
+
 setup_integration() {
   local dry_run=false assume_yes=false answer timestamp
   local bashrc=$HOME/.bashrc
@@ -248,7 +326,7 @@ catalog() {
 pick() {
   local emit=${1:-false}
   local result_file=${2:-}
-  local output key selection display source name description command header
+  local output key selection display source name description command header scope
 
   if [[ "$emit" == true ]]; then
     header='Enter: run   Alt-Enter: insert'
@@ -275,18 +353,18 @@ pick() {
       --nth=1 \
       --ansi \
       --color='fg:252,hl:33,fg+:255,bg+:237,hl+:81,prompt:81,pointer:81,header:244,border:240' \
-      --expect=enter,alt-enter,ctrl-n,ctrl-e \
+      --expect=enter,alt-enter,ctrl-n,ctrl-e,alt-up,alt-down \
       --height=70% \
       --layout=reverse \
       --border=rounded \
       --prompt='termdeck> ' \
-      --header="$header   Ctrl-N: save   Ctrl-E: edit" \
+      --header="$header   Ctrl-N: save   Ctrl-E: edit   Alt-Up/Down: reorder" \
       --no-multi
   ) || return 1
 
   key=${output%%$'\n'*}
   case "$key" in
-    enter|alt-enter|ctrl-n|ctrl-e) ;;
+    enter|alt-enter|ctrl-n|ctrl-e|alt-up|alt-down) ;;
     *)
       # Older fzf releases do not prefix a normal Enter selection with the
       # expected key, even when Enter is included in --expect.
@@ -309,6 +387,17 @@ pick() {
 
   IFS="$FIELD_SEPARATOR" read -r display source name description command <<< "$selection"
   [[ -n "$command" ]] || return 1
+
+  if [[ "$key" == alt-up || "$key" == alt-down ]]; then
+    if [[ "$source" != 'Global command' && "$source" != 'Local command' ]]; then
+      printf '%s: Taskfile tasks are read-only\n' "$PROGRAM" >&2
+      return 0
+    fi
+    if [[ "$source" == 'Global command' ]]; then scope=--global; else scope=--local; fi
+    reorder_command "$scope" --name "$name" "--${key#alt-}" >/dev/null || return
+    pick "$emit" "$result_file"
+    return
+  fi
 
   if [[ "$key" == ctrl-e ]]; then
     if [[ "$source" != 'Global command' && "$source" != 'Local command' ]]; then
@@ -351,11 +440,12 @@ pick_result() {
 
 usage() {
   cat <<EOF
-Usage: $PROGRAM [pick|list|add|setup|doctor|version]
+Usage: $PROGRAM [pick|list|add|reorder|setup|doctor|version]
 
   pick    Open the command palette and run the selected task (default)
   list    Print the merged global and local catalog
   add     Add or update a Termdeck command
+  reorder Move a saved command with --up, --down, --first, or --last
   setup   Configure Bash and Kitty integration
   doctor  Check required tools and show discovered Taskfiles
   version Print the Termdeck version
@@ -423,6 +513,12 @@ main() {
       python3 -c 'import yaml' >/dev/null 2>&1 || die 'Python package PyYAML is required'
       shift
       save_command "$@"
+      ;;
+    reorder)
+      require_command python3
+      python3 -c 'import yaml' >/dev/null 2>&1 || die 'Python package PyYAML is required'
+      shift
+      reorder_command "$@"
       ;;
     setup)
       shift
