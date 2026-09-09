@@ -8,11 +8,16 @@ trap 'rm -rf "$fixture"' EXIT
 
 cat > "$fixture/termdeck" <<'BASH'
 #!/usr/bin/env bash
+if [[ ${1:-} == update ]]; then
+  printf 'Termdeck version: 9.9.9 (updated from 1.0.0)\n'
+  exit 0
+fi
 result_file=${3:?}
 case ${TERMDECK_WIDGET_TEST_MODE:?} in
   insert) printf 'insert\necho inserted\n' > "$result_file" ;;
   execute) printf 'execute\nprintf executed > %q\n' "$TERMDECK_WIDGET_MARKER" > "$result_file" ;;
   terminal) printf 'execute\nstty -a > %q\n' "$TERMDECK_WIDGET_MARKER" > "$result_file" ;;
+  update) printf 'update\n' > "$result_file" ;;
 esac
 BASH
 chmod +x "$fixture/termdeck"
@@ -30,6 +35,11 @@ READLINE_LINE=
 READLINE_POINT=0
 TERMDECK_WIDGET_MARKER=$marker TERMDECK_WIDGET_TEST_MODE=execute _termdeck_widget
 grep -Fqx executed "$marker"
+
+mkdir -p "$fixture/share"
+printf 'TERMDECK_UPDATED_INTEGRATION=1\n' > "$fixture/share/termdeck.bash"
+TERMDECK_SHARE_DIR="$fixture/share" TERMDECK_WIDGET_TEST_MODE=update _termdeck_widget
+[[ ${TERMDECK_UPDATED_INTEGRATION:-} == 1 ]]
 
 # Exercise the actual Readline binding in a pseudo-terminal. Commands invoked
 # by bind -x would otherwise inherit Readline's raw, no-echo terminal state.

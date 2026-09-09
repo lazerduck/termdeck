@@ -43,6 +43,7 @@ PY
 
 output=$(cd "$fixture/project" && XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" list)
 
+grep -F $'Termdeck\x1fUpdate\x1fInstall the latest release\x1ftermdeck update' <<< "$output" >/dev/null
 grep -F $'Global task\x1fdocker:list-all\x1fDocker: list all containers' <<< "$output" >/dev/null
 grep -F $'Local task\x1ftest\x1fRun the tests' <<< "$output" >/dev/null
 grep -F $'Global command\x1fSaved status\x1f\x1fgit status' <<< "$output" >/dev/null
@@ -84,6 +85,13 @@ grep -F 'hi' <<< "$output" >/dev/null
 (cd "$fixture/project" && TERMDECK_TEST_PATTERN="$saved_pattern" PATH="$fixture/bin:$PATH" XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" pick --emit-to "$result_file")
 grep -Fqx 'execute' "$result_file"
 grep -Fqx 'echo hi' "$result_file"
+
+(cd "$fixture/project" && \
+  TERMDECK_TEST_PATTERN=$'Termdeck\x1fUpdate\x1f' \
+  PATH="$fixture/bin:$PATH" \
+  XDG_CONFIG_HOME="$fixture/config" \
+  "$root/bin/termdeck" pick --emit-to "$result_file")
+grep -Fqx 'update' "$result_file"
 
 key_used=$fixture/reorder-key-used
 (cd "$fixture/project" && \

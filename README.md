@@ -47,6 +47,9 @@ Inside the palette:
 | Ctrl-E | Edit the selected Termdeck-owned command |
 | Alt-Up / Alt-Down | Move a saved command up or down |
 
+The built-in `Termdeck: Update` entry installs the latest release, reloads the
+Bash integration, and reports whether the installed version changed.
+
 Termdeck stores its own commands in:
 
 ```text
@@ -70,6 +73,7 @@ does not walk up through parent directories.
 termdeck                   Open the palette
 termdeck add               Add a saved command using flags
 termdeck reorder           Move a saved command within its global or local list
+termdeck update            Install the latest release and report its version
 termdeck list              Print the merged catalog
 termdeck setup             Configure Bash and Kitty
 termdeck setup --dry-run   Preview setup changes
@@ -84,6 +88,7 @@ termdeck add --global --name 'Docker: list all' --command 'docker ps -a'
 termdeck add --local --name 'Start development' --command 'npm run dev'
 termdeck reorder --global --name 'Docker: list all' --first
 termdeck reorder --local --name 'Start development' --down
+termdeck update
 ```
 
 ## Install from a checkout
@@ -103,6 +108,7 @@ The installer preserves an existing global command file.
 ./tests/smoke.sh
 ./tests/widget.sh
 ./tests/install.sh
+./tests/update.sh
 ```
 
 The current prototype targets Bash and Kitty. Zsh, Fish, and additional terminal

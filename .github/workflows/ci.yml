@@ -19,9 +19,10 @@ jobs:
           sudo apt-get install -y fzf jq python3-yaml
           go install github.com/go-task/task/v3/cmd/task@v3.53.0
       - name: Check shell syntax
-        run: bash -n bin/termdeck shell/termdeck.bash install.sh tests/smoke.sh tests/install.sh tests/widget.sh
+        run: bash -n bin/termdeck shell/termdeck.bash install.sh tests/*.sh
       - name: Test
         run: |
           ./tests/smoke.sh
           ./tests/widget.sh
           ./tests/install.sh
+          ./tests/update.sh

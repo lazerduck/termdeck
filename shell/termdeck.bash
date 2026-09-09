@@ -20,6 +20,12 @@ _termdeck_widget() {
   ((${#lines[@]} >= 1)) || return 0
 
   mode=${lines[0]}
+  if [[ "$mode" == update ]]; then
+    printf '\n'
+    "$_TERMDECK_BIN" update || return
+    source "${TERMDECK_SHARE_DIR:-$HOME/.local/share/termdeck}/termdeck.bash"
+    return 0
+  fi
   if [[ "$mode" == add ]]; then
     _termdeck_add_command "$original_line"
     return 0

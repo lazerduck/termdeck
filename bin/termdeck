@@ -308,9 +308,39 @@ EOF
   printf '  source %q\n' "$SHARE_DIR/termdeck.bash"
 }
 
+update_termdeck() {
+  local previous_version=$VERSION
+  local install_url=${TERMDECK_INSTALL_URL:-https://raw.githubusercontent.com/lazerduck/termdeck/main/install.sh}
+  local installer installed_bin version_output current_version
+
+  require_command curl
+  installer=$(mktemp "${TMPDIR:-/tmp}/termdeck-installer.XXXXXX") || return 1
+  if ! curl -fsSL "$install_url" -o "$installer"; then
+    rm -f "$installer"
+    return 1
+  fi
+  if ! bash "$installer"; then
+    rm -f "$installer"
+    return 1
+  fi
+  rm -f "$installer"
+
+  installed_bin=${TERMDECK_BIN_DIR:-$HOME/.local/bin}/termdeck
+  [[ -x "$installed_bin" ]] || die "updated executable not found at $installed_bin"
+  version_output=$("$installed_bin" version) || return
+  current_version=${version_output#termdeck }
+
+  if [[ "$current_version" == "$previous_version" ]]; then
+    printf 'Termdeck version: %s (already current; no change)\n' "$current_version"
+  else
+    printf 'Termdeck version: %s (updated from %s)\n' "$current_version" "$previous_version"
+  fi
+}
+
 catalog() {
   local local_taskfile
 
+  printf 'Termdeck\x1fUpdate\x1fInstall the latest release\x1ftermdeck update\n'
   commands_from 'Global command' "$GLOBAL_COMMANDS" || return
   commands_from 'Local command' "$LOCAL_COMMANDS" || return
 
@@ -388,6 +418,15 @@ pick() {
   IFS="$FIELD_SEPARATOR" read -r display source name description command <<< "$selection"
   [[ -n "$command" ]] || return 1
 
+  if [[ "$key" == enter && "$source" == Termdeck && "$name" == Update ]]; then
+    if [[ "$emit" == true ]]; then
+      pick_result "$result_file" 'update\n'
+    else
+      update_termdeck
+    fi
+    return
+  fi
+
   if [[ "$key" == alt-up || "$key" == alt-down ]]; then
     if [[ "$source" != 'Global command' && "$source" != 'Local command' ]]; then
       printf '%s: Taskfile tasks are read-only\n' "$PROGRAM" >&2
@@ -440,12 +479,13 @@ pick_result() {
 
 usage() {
   cat <<EOF
-Usage: $PROGRAM [pick|list|add|reorder|setup|doctor|version]
+Usage: $PROGRAM [pick|list|add|reorder|update|setup|doctor|version]
 
   pick    Open the command palette and run the selected task (default)
   list    Print the merged global and local catalog
   add     Add or update a Termdeck command
   reorder Move a saved command with --up, --down, --first, or --last
+  update  Install the latest Termdeck release and report the version change
   setup   Configure Bash and Kitty integration
   doctor  Check required tools and show discovered Taskfiles
   version Print the Termdeck version
@@ -520,6 +560,7 @@ main() {
       shift
       reorder_command "$@"
       ;;
+    update) update_termdeck ;;
     setup)
       shift
       setup_integration "$@"
