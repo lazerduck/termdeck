@@ -260,7 +260,12 @@ pick() {
   output=$(
     catalog | awk -v FS="$FIELD_SEPARATOR" -v OFS="$FIELD_SEPARATOR" '
       {
-        display = $1 ": " $2
+        color = "\033[38;5;81m"
+        if ($1 == "Global command") color = "\033[38;5;42m"
+        else if ($1 == "Local command") color = "\033[38;5;220m"
+        else if ($1 == "Global task") color = "\033[38;5;39m"
+        else if ($1 == "Local task") color = "\033[38;5;141m"
+        display = color $1 "\033[0m: " $2
         if ($3 != "") display = display " — " $3
         print display, $0
       }
@@ -268,6 +273,8 @@ pick() {
       --delimiter="$FIELD_SEPARATOR" \
       --with-nth=1 \
       --nth=1 \
+      --ansi \
+      --color='fg:252,hl:33,fg+:255,bg+:237,hl+:81,prompt:81,pointer:81,header:244,border:240' \
       --expect=enter,alt-enter,ctrl-n,ctrl-e \
       --height=70% \
       --layout=reverse \
