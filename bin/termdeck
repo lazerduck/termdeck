@@ -340,7 +340,6 @@ update_termdeck() {
 catalog() {
   local local_taskfile
 
-  printf 'Termdeck\x1fUpdate\x1fInstall the latest release\x1ftermdeck update\n'
   commands_from 'Global command' "$GLOBAL_COMMANDS" || return
   commands_from 'Local command' "$LOCAL_COMMANDS" || return
 
@@ -383,18 +382,18 @@ pick() {
       --nth=1 \
       --ansi \
       --color='fg:252,hl:33,fg+:255,bg+:237,hl+:81,prompt:81,pointer:81,header:244,border:240' \
-      --expect=enter,alt-enter,ctrl-n,ctrl-e,alt-up,alt-down \
+      --expect=enter,alt-enter,ctrl-n,ctrl-e,ctrl-u,alt-up,alt-down \
       --height=70% \
       --layout=reverse \
       --border=rounded \
       --prompt='termdeck> ' \
-      --header="$header   Ctrl-N: save   Ctrl-E: edit   Alt-Up/Down: reorder" \
+      --header="$header   Ctrl-N: save   Ctrl-E: edit   Ctrl-U: update   Alt-Up/Down: reorder" \
       --no-multi
   ) || return 1
 
   key=${output%%$'\n'*}
   case "$key" in
-    enter|alt-enter|ctrl-n|ctrl-e|alt-up|alt-down) ;;
+    enter|alt-enter|ctrl-n|ctrl-e|ctrl-u|alt-up|alt-down) ;;
     *)
       # Older fzf releases do not prefix a normal Enter selection with the
       # expected key, even when Enter is included in --expect.
@@ -410,15 +409,7 @@ pick() {
     fi
     return 0
   fi
-  if [[ -z ${selection+x} ]]; then
-    selection=${output#*$'\n'}
-  fi
-  [[ -n "$selection" ]] || return 1
-
-  IFS="$FIELD_SEPARATOR" read -r display source name description command <<< "$selection"
-  [[ -n "$command" ]] || return 1
-
-  if [[ "$key" == enter && "$source" == Termdeck && "$name" == Update ]]; then
+  if [[ "$key" == ctrl-u ]]; then
     if [[ "$emit" == true ]]; then
       pick_result "$result_file" 'update\n'
     else
@@ -426,6 +417,13 @@ pick() {
     fi
     return
   fi
+  if [[ -z ${selection+x} ]]; then
+    selection=${output#*$'\n'}
+  fi
+  [[ -n "$selection" ]] || return 1
+
+  IFS="$FIELD_SEPARATOR" read -r display source name description command <<< "$selection"
+  [[ -n "$command" ]] || return 1
 
   if [[ "$key" == alt-up || "$key" == alt-down ]]; then
     if [[ "$source" != 'Global command' && "$source" != 'Local command' ]]; then

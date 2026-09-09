@@ -45,10 +45,11 @@ Inside the palette:
 | Alt-Enter | Insert it at the current prompt without executing |
 | Ctrl-N | Save the current prompt, a history entry, or another command |
 | Ctrl-E | Edit the selected Termdeck-owned command |
+| Ctrl-U | Install the latest Termdeck release |
 | Alt-Up / Alt-Down | Move a saved command up or down |
 
-The built-in `Termdeck: Update` entry installs the latest release, reloads the
-Bash integration, and reports whether the installed version changed.
+The update shortcut reloads the Bash integration and reports whether the
+installed version changed.
 
 Termdeck stores its own commands in:
 
