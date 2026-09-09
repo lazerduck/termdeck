@@ -3,6 +3,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+export PATH="$(go env GOPATH 2>/dev/null)/bin:$PATH"
 fixture=$(mktemp -d)
 trap 'rm -rf "$fixture"' EXIT
 

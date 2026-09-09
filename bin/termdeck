@@ -258,12 +258,10 @@ pick() {
 
   require_command fzf
   output=$(
-    catalog | awk -v sep="$FIELD_SEPARATOR" 'BEGIN { red="\033[38;5;39m"; yellow="\033[38;5;220m"; green="\033[38;5;42m"; reset="\033[0m" } { first = index($0, sep); if (first) { source = substr($0, 1, first - 1); if (source == "Global command") color = green; else if (source == "Local command") color = yellow; else color = red; print color source reset " :" substr($0, first) } else print }' | fzf \
+    catalog | fzf \
       --delimiter="$FIELD_SEPARATOR" \
       --with-nth=1,2,3 \
       --nth=1,2,3 \
-      --ansi \
-      --color='fg:252,hl:33,fg+:255,bg+:237,hl+:81,prompt:81,pointer:81,header:244,border:240' \
       --expect=enter,alt-enter,ctrl-n,ctrl-e \
       --height=70% \
       --layout=reverse \
