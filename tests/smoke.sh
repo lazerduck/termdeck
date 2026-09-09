@@ -37,7 +37,9 @@ grep -F $'Local command\x1fFriendly greeting\x1f\x1fecho hi' <<< "$output" >/dev
 cat > "$fixture/bin/fzf" <<'BASH'
 #!/usr/bin/env bash
 pattern=${TERMDECK_TEST_PATTERN:-$'Local task\x1ftest\x1f'}
-selection=$(grep -F "$pattern" | head -1)
+input=$(cat)
+grep -F $'Local task: test — Run the tests\x1fLocal task\x1ftest\x1f' <<< "$input" >/dev/null
+selection=$(grep -F "$pattern" <<< "$input" | head -1)
 printf 'enter\n%s\n' "$selection"
 BASH
 chmod +x "$fixture/bin/fzf"

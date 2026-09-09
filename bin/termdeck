@@ -248,7 +248,7 @@ catalog() {
 pick() {
   local emit=${1:-false}
   local result_file=${2:-}
-  local output key selection source name description command header
+  local output key selection display source name description command header
 
   if [[ "$emit" == true ]]; then
     header='Enter: run   Alt-Enter: insert'
@@ -258,10 +258,16 @@ pick() {
 
   require_command fzf
   output=$(
-    catalog | fzf \
+    catalog | awk -v FS="$FIELD_SEPARATOR" -v OFS="$FIELD_SEPARATOR" '
+      {
+        display = $1 ": " $2
+        if ($3 != "") display = display " — " $3
+        print display, $0
+      }
+    ' | fzf \
       --delimiter="$FIELD_SEPARATOR" \
-      --with-nth=1,2,3 \
-      --nth=1,2,3 \
+      --with-nth=1 \
+      --nth=1 \
       --expect=enter,alt-enter,ctrl-n,ctrl-e \
       --height=70% \
       --layout=reverse \
@@ -294,7 +300,7 @@ pick() {
   fi
   [[ -n "$selection" ]] || return 1
 
-  IFS="$FIELD_SEPARATOR" read -r source name description command <<< "$selection"
+  IFS="$FIELD_SEPARATOR" read -r display source name description command <<< "$selection"
   [[ -n "$command" ]] || return 1
 
   if [[ "$key" == ctrl-e ]]; then
