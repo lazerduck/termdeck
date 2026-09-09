@@ -9,7 +9,7 @@ else
 fi
 
 _termdeck_widget() {
-  local result_file mode command original_line
+  local result_file mode command original_line terminal_state= command_status
   local -a lines
 
   original_line=$READLINE_LINE
@@ -44,7 +44,21 @@ _termdeck_widget() {
   READLINE_POINT=0
   printf '\n'
   history -s "$command"
-  builtin eval -- "$command"
+
+  # bind -x callbacks run while Readline has the terminal in raw, no-echo
+  # mode. Interactive programs such as ssh must start from the normal shell
+  # state, then Readline's state must be restored when they return.
+  if [[ -t 0 ]]; then
+    terminal_state=$(stty -g 2>/dev/null) || terminal_state=
+    [[ -z "$terminal_state" ]] || stty sane
+  fi
+  if builtin eval -- "$command"; then
+    command_status=0
+  else
+    command_status=$?
+  fi
+  [[ -z "$terminal_state" ]] || stty "$terminal_state"
+  return "$command_status"
 }
 
 _termdeck_add_command() {
