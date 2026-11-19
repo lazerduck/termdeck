@@ -245,6 +245,73 @@ print(f"moved {name!r} {direction} in {path}")
 PY
 }
 
+delete_command() {
+  local scope= name= file
+
+  while (($#)); do
+    case $1 in
+      --global) scope=global ;;
+      --local) scope=local ;;
+      --name) shift; (($#)) || die '--name needs a value'; name=$1 ;;
+      *) die "unknown delete option: $1" ;;
+    esac
+    shift
+  done
+
+  [[ -n "$scope" ]] || die 'delete requires --global or --local'
+  [[ -n "$name" ]] || die 'delete requires --name'
+  if [[ "$scope" == global ]]; then file=$GLOBAL_COMMANDS; else file=$LOCAL_COMMANDS; fi
+
+  python3 - "$file" "$name" <<'PY'
+import os
+import sys
+import tempfile
+import yaml
+
+path, name = sys.argv[1:]
+try:
+    with open(path, encoding="utf-8") as handle:
+        document = yaml.safe_load(handle) or {}
+except FileNotFoundError:
+    print(f"termdeck: command not found: {name}", file=sys.stderr)
+    raise SystemExit(1)
+except (OSError, yaml.YAMLError) as exc:
+    print(f"termdeck: cannot delete {path}: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+if not isinstance(document, dict) or not isinstance(document.get("commands"), list):
+    print(f"termdeck: {path}: 'commands' must be a list", file=sys.stderr)
+    raise SystemExit(1)
+
+commands = document["commands"]
+index = next(
+    (position for position, entry in enumerate(commands)
+     if isinstance(entry, dict) and entry.get("name") == name),
+    None,
+)
+if index is None:
+    print(f"termdeck: command not found: {name}", file=sys.stderr)
+    raise SystemExit(1)
+
+del commands[index]
+
+directory = os.path.dirname(path) or "."
+fd, temporary = tempfile.mkstemp(prefix=".termdeck-", suffix=".yaml", dir=directory, text=True)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        yaml.safe_dump(document, handle, sort_keys=False, allow_unicode=True)
+    os.replace(temporary, path)
+except BaseException:
+    try:
+        os.unlink(temporary)
+    except FileNotFoundError:
+        pass
+    raise
+
+print(f"removed {name!r} in {path}")
+PY
+}
+
 setup_integration() {
   local dry_run=false assume_yes=false answer timestamp
   local bashrc=$HOME/.bashrc
@@ -358,9 +425,9 @@ pick() {
   local output key selection display source name description command header scope
 
   if [[ "$emit" == true ]]; then
-    header='Enter: run   Alt-Enter: insert'
+    header='Enter: run   Alt-Enter: insert   Ctrl-D: delete'
   else
-    header='Enter: run   Alt-Enter: print command (insertion requires shell shortcut)'
+    header='Enter: run   Alt-Enter: print command (insertion requires shell shortcut)   Ctrl-D: delete'
   fi
 
   require_command fzf
@@ -382,18 +449,18 @@ pick() {
       --nth=1 \
       --ansi \
       --color='fg:252,hl:33,fg+:255,bg+:237,hl+:81,prompt:81,pointer:81,header:244,border:240' \
-      --expect=enter,alt-enter,ctrl-n,ctrl-e,ctrl-u,alt-up,alt-down \
+      --expect=enter,alt-enter,ctrl-n,ctrl-d,ctrl-e,ctrl-u,alt-up,alt-down \
       --height=70% \
       --layout=reverse \
       --border=rounded \
       --prompt='termdeck> ' \
-      --header="$header   Ctrl-N: save   Ctrl-E: edit   Ctrl-U: update   Alt-Up/Down: reorder" \
+      --header="$header   Ctrl-N: save   Ctrl-E: edit   Ctrl-U: update   Alt-Up/Down: reorder   Ctrl-D: delete" \
       --no-multi
   ) || return 1
 
   key=${output%%$'\n'*}
   case "$key" in
-    enter|alt-enter|ctrl-n|ctrl-e|ctrl-u|alt-up|alt-down) ;;
+    enter|alt-enter|ctrl-n|ctrl-d|ctrl-e|ctrl-u|alt-up|alt-down) ;;
     *)
       # Older fzf releases do not prefix a normal Enter selection with the
       # expected key, even when Enter is included in --expect.
@@ -432,6 +499,17 @@ pick() {
     fi
     if [[ "$source" == 'Global command' ]]; then scope=--global; else scope=--local; fi
     reorder_command "$scope" --name "$name" "--${key#alt-}" >/dev/null || return
+    pick "$emit" "$result_file"
+    return
+  fi
+
+  if [[ "$key" == ctrl-d ]]; then
+    if [[ "$source" != 'Global command' && "$source" != 'Local command' ]]; then
+      printf '%s: Taskfile tasks are read-only\n' "$PROGRAM" >&2
+      return 0
+    fi
+    if [[ "$source" == 'Global command' ]]; then scope=--global; else scope=--local; fi
+    delete_command "$scope" --name "$name" >/dev/null || return
     pick "$emit" "$result_file"
     return
   fi
@@ -477,11 +555,12 @@ pick_result() {
 
 usage() {
   cat <<EOF
-Usage: $PROGRAM [pick|list|add|reorder|update|setup|doctor|version]
+Usage: $PROGRAM [pick|list|add|reorder|delete|update|setup|doctor|version]
 
   pick    Open the command palette and run the selected task (default)
   list    Print the merged global and local catalog
   add     Add or update a Termdeck command
+  delete  Delete a saved command with --global/--local and --name
   reorder Move a saved command with --up, --down, --first, or --last
   update  Install the latest Termdeck release and report the version change
   setup   Configure Bash and Kitty integration
@@ -557,6 +636,12 @@ main() {
       python3 -c 'import yaml' >/dev/null 2>&1 || die 'Python package PyYAML is required'
       shift
       reorder_command "$@"
+      ;;
+    delete)
+      require_command python3
+      python3 -c 'import yaml' >/dev/null 2>&1 || die 'Python package PyYAML is required'
+      shift
+      delete_command "$@"
       ;;
     update) update_termdeck ;;
     setup)

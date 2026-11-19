@@ -111,4 +111,56 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     print(yaml.safe_load(handle)["commands"][-1]["name"])
 PY
 ) == 'Saved status' ]]
+
+# delete: global and local CLI remove the named entry and report it
+XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" add --global --name 'To delete' --command 'echo bye'
+output=$(XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" delete --global --name 'To delete')
+[[ $output == "removed 'To delete' in $fixture/config/termdeck/commands.yaml" ]]
+! grep -q 'To delete' "$fixture/config/termdeck/commands.yaml"
+
+(cd "$fixture/project" && XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" add --local --name 'To remove' --command 'echo rm')
+output=$(cd "$fixture/project" && XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" delete --local --name 'To remove')
+[[ $output == "removed 'To remove' in $fixture/project/.termdeck.yaml" ]]
+! grep -q 'To remove' "$fixture/project/.termdeck.yaml"
+
+# delete: unknown name, missing scope, missing name, unknown option
+if XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" delete --global --name 'Absolutely missing' 2>"$fixture/delete-err"; then
+  printf 'delete of unknown name should fail\\n' >&2; exit 1
+fi
+grep -F "termdeck: command not found: Absolutely missing" "$fixture/delete-err" >/dev/null
+grep -q 'Saved status' "$fixture/config/termdeck/commands.yaml"  # file unchanged
+
+! XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" delete >/dev/null 2>&1
+! XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" delete --global >/dev/null 2>&1
+
+if XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" delete --global --name 'X' --bogus 2>"$fixture/delete-err"; then
+  printf 'delete should reject unknown option\\n' >&2; exit 1
+fi
+grep -F "unknown delete option: --bogus" "$fixture/delete-err" >/dev/null
+
+# delete: picker ctrl-d on a saved command removes it and re-displays the catalog.
+# The recursive re-pick returns 1 once nothing matches, so tolerate that exit.
+key_used=$fixture/delete-key-used
+(cd "$fixture/project" && \
+  TERMDECK_TEST_PATTERN=$'Global command\x1fSaved status\x1f' \
+  TERMDECK_TEST_KEY=ctrl-d \
+  TERMDECK_TEST_KEY_USED="$key_used" \
+  PATH="$fixture/bin:$PATH" \
+  XDG_CONFIG_HOME="$fixture/config" \
+  "$root/bin/termdeck" pick --emit-to "$result_file") || true
+[[ -e "$key_used" ]]
+! grep -q 'Saved status' "$fixture/config/termdeck/commands.yaml"
+
+# delete: picker ctrl-d on a Taskfile task is read-only and removes nothing
+key_used=$fixture/delete-task-key-used
+(cd "$fixture/project" && \
+  TERMDECK_TEST_PATTERN=$'Local task\x1ftest\x1f' \
+  TERMDECK_TEST_KEY=ctrl-d \
+  TERMDECK_TEST_KEY_USED="$key_used" \
+  PATH="$fixture/bin:$PATH" \
+  XDG_CONFIG_HOME="$fixture/config" \
+  "$root/bin/termdeck" pick 2>"$fixture/delete-task-err") || true
+[[ -e "$key_used" ]]
+grep -F 'termdeck: Taskfile tasks are read-only' "$fixture/delete-task-err" >/dev/null
+
 printf 'smoke test passed\n'
