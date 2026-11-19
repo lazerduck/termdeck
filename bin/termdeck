@@ -247,17 +247,21 @@ PY
 
 delete_command() {
   local scope= name= file
+  local have_global=false have_local=false
 
   while (($#)); do
     case $1 in
-      --global) scope=global ;;
-      --local) scope=local ;;
+      --global) have_global=true; scope=global ;;
+      --local) have_local=true; scope=local ;;
       --name) shift; (($#)) || die '--name needs a value'; name=$1 ;;
       *) die "unknown delete option: $1" ;;
     esac
     shift
   done
 
+  if $have_global && $have_local; then
+    die 'delete requires exactly one of --global or --local'
+  fi
   [[ -n "$scope" ]] || die 'delete requires --global or --local'
   [[ -n "$name" ]] || die 'delete requires --name'
   if [[ "$scope" == global ]]; then file=$GLOBAL_COMMANDS; else file=$LOCAL_COMMANDS; fi
@@ -310,6 +314,35 @@ except BaseException:
 
 print(f"removed {name!r} in {path}")
 PY
+}
+
+# Confirm deletion of a saved command from the picker. Presents the command's
+# name and scope with Cancel as the default, so an accidental Ctrl-D never
+# removes anything. The command name is only shown in the confirmation prompt
+# and passed as data to delete_command; it is never interpolated into executable
+# shell code. Returns 0 only when the user explicitly chooses Delete.
+confirm_deletion() {
+  local source=$1 name=$2 scope_label header choice
+
+  if [[ "$source" == 'Global command' ]]; then
+    scope_label='global'
+  else
+    scope_label='local'
+  fi
+
+  header=$(printf 'Delete %s (%s command)?' "$name" "$scope_label")
+
+  choice=$(printf 'Cancel\nDelete\n' | fzf \
+    --height=20% \
+    --layout=reverse \
+    --border=rounded \
+    --prompt='delete> ' \
+    --header="$header" \
+    --expect=enter \
+    --no-multi) || return 1
+
+  local selected=${choice#*$'\n'}
+  [[ ${selected%$'\n'} == 'Delete' ]]
 }
 
 setup_integration() {
@@ -509,8 +542,10 @@ pick() {
       return 0
     fi
     if [[ "$source" == 'Global command' ]]; then scope=--global; else scope=--local; fi
-    delete_command "$scope" --name "$name" >/dev/null || return
-    pick "$emit" "$result_file"
+    if confirm_deletion "$source" "$name"; then
+      delete_command "$scope" --name "$name" >/dev/null || return
+      pick "$emit" "$result_file"
+    fi
     return
   fi
 

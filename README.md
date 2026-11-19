@@ -46,7 +46,7 @@ Inside the palette:
 | Ctrl-N | Save the current prompt, a history entry, or another command |
 | Ctrl-E | Edit the selected Termdeck-owned command |
 | Ctrl-U | Install the latest Termdeck release |
-| Ctrl-D | Delete the selected saved command |
+| Ctrl-D | Delete the selected saved command (prompts to confirm; Cancel is the default) |
 | Alt-Up / Alt-Down | Move a saved command up or down |
 
 The update shortcut reloads the Bash integration and reports whether the
@@ -74,7 +74,7 @@ does not walk up through parent directories.
 ```text
 termdeck                   Open the palette
 termdeck add               Add a saved command using flags
-termdeck delete            Delete a saved command by name
+termdeck delete            Delete a saved command by name (non-interactive)
 termdeck reorder           Move a saved command within its global or local list
 termdeck update            Install the latest release and report its version
 termdeck list              Print the merged catalog
@@ -94,6 +94,11 @@ termdeck reorder --global --name 'Docker: list all' --first
 termdeck reorder --local --name 'Start development' --down
 termdeck update
 ```
+
+Deleting from the picker (`Ctrl-D`) first shows a confirmation prompt with the
+selected command's name and scope; `Cancel` is the default and the configuration
+is left unchanged unless `Delete` is chosen explicitly. The CLI `delete` verb
+removes without prompting.
 
 ## Install from a checkout
 
