@@ -52,10 +52,20 @@ grep -F $'Local command\x1fFriendly greeting\x1f\x1fecho hi' <<< "$output" >/dev
 
 cat > "$fixture/bin/fzf" <<'BASH'
 #!/usr/bin/env bash
-pattern=${TERMDECK_TEST_PATTERN:-$'Local task\x1ftest\x1f'}
 input=$(cat)
-grep -F $'Local task: test — Run the tests\x1fLocal task\x1ftest\x1f' <<< "$input" >/dev/null
-selection=$(grep -F "$pattern" <<< "$input" | head -1)
+
+# A confirmation dialog presents exactly two lines: Cancel then Delete.
+if [[ "$input" == $'Cancel\nDelete'* ]]; then
+  if [[ -n ${TERMDECK_TEST_FAIL_CONFIRM:-} ]]; then
+    # Simulate Escape / a failed confirmation interaction.
+    exit 1
+  fi
+  selection=${TERMDECK_TEST_CONFIRM:-Cancel}
+else
+  pattern=${TERMDECK_TEST_PATTERN:-$'Local task\x1ftest\x1f'}
+  selection=$(grep -F "$pattern" <<< "$input" | head -1)
+fi
+
 key=enter
 if [[ -n ${TERMDECK_TEST_KEY:-} && ! -e ${TERMDECK_TEST_KEY_USED:?} ]]; then
   key=$TERMDECK_TEST_KEY
@@ -111,4 +121,8 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     print(yaml.safe_load(handle)["commands"][-1]["name"])
 PY
 ) == 'Saved status' ]]
+
+# Deletion has its own fixtures and strict picker/confirmation assertions.
+"$root/tests/deletion.sh"
+
 printf 'smoke test passed\n'
