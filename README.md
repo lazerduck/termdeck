@@ -75,6 +75,7 @@ does not walk up through parent directories.
 termdeck                   Open the palette
 termdeck add               Add a saved command using flags
 termdeck delete            Delete a saved command by name (non-interactive)
+termdeck run                Run a saved command by name (non-interactive)
 termdeck reorder           Move a saved command within its global or local list
 termdeck update            Install the latest release and report its version
 termdeck list              Print the merged catalog
@@ -90,6 +91,7 @@ For example:
 termdeck add --global --name 'Docker: list all' --command 'docker ps -a'
 termdeck add --local --name 'Start development' --command 'npm run dev'
 termdeck delete --global --name 'Docker: list all'
+termdeck run --global --name 'Docker: list all'
 termdeck reorder --global --name 'Docker: list all' --first
 termdeck reorder --local --name 'Start development' --down
 termdeck update

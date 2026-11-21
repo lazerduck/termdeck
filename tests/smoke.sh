@@ -124,5 +124,6 @@ PY
 
 # Deletion has its own fixtures and strict picker/confirmation assertions.
 "$root/tests/deletion.sh"
+"$root/tests/run.sh"
 
 printf 'smoke test passed\n'

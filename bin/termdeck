@@ -316,6 +316,69 @@ print(f"removed {name!r} in {path}")
 PY
 }
 
+# Run a saved command by name, headlessly. Mirrors pick's execute primitive
+# (`builtin eval -- "$command"`), but sources the command from a saved global or
+# local entry instead of an fzf selection. Read-only: it never writes the
+# commands file. Exits with the command's own exit status so scripts can branch
+# on failure; prints nothing of its own so command output can be captured.
+run_command() {
+  local scope= name= file
+  local have_global=false have_local=false
+
+  while (($#)); do
+    case $1 in
+      --global) have_global=true; scope=global ;;
+      --local) have_local=true; scope=local ;;
+      --name) shift; (($#)) || die '--name needs a value'; name=$1 ;;
+      *) die "unknown run option: $1" ;;
+    esac
+    shift
+  done
+
+  if $have_global && $have_local; then
+    die 'run requires exactly one of --global or --local'
+  fi
+  [[ -n "$scope" ]] || die 'run requires --global or --local'
+  [[ -n "$name" ]] || die 'run requires --name'
+  if [[ "$scope" == global ]]; then file=$GLOBAL_COMMANDS; else file=$LOCAL_COMMANDS; fi
+
+  command=$(python3 - "$file" "$name" <<'PY'
+import os
+import sys
+import yaml
+
+path, name = sys.argv[1:]
+try:
+    with open(path, encoding="utf-8") as handle:
+        document = yaml.safe_load(handle) or {}
+except FileNotFoundError:
+    print(f"termdeck: command not found: {name}", file=sys.stderr)
+    raise SystemExit(1)
+except (OSError, yaml.YAMLError) as exc:
+    print(f"termdeck: cannot read {path}: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+if not isinstance(document, dict) or not isinstance(document.get("commands"), list):
+    print(f"termdeck: {path}: 'commands' must be a list", file=sys.stderr)
+    raise SystemExit(1)
+
+for entry in document["commands"]:
+    if isinstance(entry, dict) and entry.get("name") == name:
+        command = entry.get("command")
+        if command is None or command == "":
+            print(f"termdeck: {path}: '{name}' has no command", file=sys.stderr)
+            raise SystemExit(1)
+        print(command)
+        raise SystemExit(0)
+
+print(f"termdeck: command not found: {name}", file=sys.stderr)
+raise SystemExit(1)
+PY
+  ) || return $?
+
+  builtin eval -- "$command"
+}
+
 # Confirm deletion of a saved command from the picker. Presents the command's
 # name and scope with Cancel as the default, so an accidental Ctrl-D never
 # removes anything. The command name is only shown in the confirmation prompt
@@ -590,12 +653,13 @@ pick_result() {
 
 usage() {
   cat <<EOF
-Usage: $PROGRAM [pick|list|add|reorder|delete|update|setup|doctor|version]
+Usage: $PROGRAM [pick|list|add|reorder|delete|run|update|setup|doctor|version]
 
   pick    Open the command palette and run the selected task (default)
   list    Print the merged global and local catalog
   add     Add or update a Termdeck command
   delete  Delete a saved command with --global/--local and --name
+  run     Run a saved global or local command by name
   reorder Move a saved command with --up, --down, --first, or --last
   update  Install the latest Termdeck release and report the version change
   setup   Configure Bash and Kitty integration
@@ -677,6 +741,12 @@ main() {
       python3 -c 'import yaml' >/dev/null 2>&1 || die 'Python package PyYAML is required'
       shift
       delete_command "$@"
+      ;;
+    run)
+      require_command python3
+      python3 -c 'import yaml' >/dev/null 2>&1 || die 'Python package PyYAML is required'
+      shift
+      run_command "$@"
       ;;
     update) update_termdeck ;;
     setup)
