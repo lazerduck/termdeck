@@ -11,6 +11,7 @@ mkdir -p "$fixture/home" "$fixture/project" "$fixture/config/termdeck"
 export HOME="$fixture/home" XDG_CONFIG_HOME="$fixture/config"
 export TERMDECK_GLOBAL_COMMANDS="$fixture/config/termdeck/commands.yaml"
 export TERMDECK_LOCAL_COMMANDS="$fixture/project/.termdeck.yaml"
+export TERMDECK_GLOBAL_TASKFILE="$fixture/config/termdeck/Taskfile.yml"
 cd "$fixture/project"
 
 fail() { printf 'run test: %s\n' "$*" >&2; exit 1; }
@@ -160,5 +161,88 @@ reset_files
 "$root/bin/termdeck" run --global --name Target >"$fixture/stdout" 2>&1
 assert_same "$TERMDECK_GLOBAL_COMMANDS" "$fixture/global-before"
 assert_same "$TERMDECK_LOCAL_COMMANDS" "$fixture/local-before"
+
+# --- Taskfile task execution ---
+
+cat > "$TERMDECK_GLOBAL_TASKFILE" <<'YAML'
+version: '3'
+tasks:
+  demo:
+    desc: Global demo task
+    cmds:
+      - echo global-task
+  same-name:
+    desc: Collision task
+    cmds:
+      - echo task-wins
+YAML
+
+cat > Taskfile.yml <<'YAML'
+version: '3'
+tasks:
+  test:
+    desc: Local test task
+    cmds:
+      - echo local-task
+  fails:
+    desc: Failing local task
+    cmds:
+      - exit 3
+YAML
+
+# --global runs a Taskfile task; output passes through, exit 0
+output=$("$root/bin/termdeck" run --global --name demo)
+[[ "$output" == global-task ]] || fail "global task did not run: $output"
+
+# --local runs a Taskfile task discovered in PWD
+output=$("$root/bin/termdeck" run --local --name test)
+[[ "$output" == local-task ]] || fail "local task did not run: $output"
+
+# output capture: output=$(termdeck run --local --name test)
+output=$("$root/bin/termdeck" run --local --name test)
+[[ "$output" == local-task ]] || fail "task output capture failed: $output"
+
+# command takes precedence over a task on a name collision
+cat > "$TERMDECK_GLOBAL_COMMANDS" <<'YAML'
+version: 1
+commands:
+  - name: same-name
+    command: echo command-wins
+YAML
+output=$("$root/bin/termdeck" run --global --name same-name)
+[[ "$output" == command-wins ]] || fail "command did not take precedence over task: $output"
+
+# unknown name in commands or tasks -> command not found, exit 1, files unchanged
+before_global=$(cat "$TERMDECK_GLOBAL_COMMANDS")
+before_taskfile=$(cat "$TERMDECK_GLOBAL_TASKFILE")
+"$root/bin/termdeck" run --global --name absent-task >"$fixture/stdout" 2>"$fixture/stderr" && fail "unknown task name should fail"
+[[ $? == 1 ]] || fail "unexpected status for unknown task"
+grep -Fq "command not found: absent-task" "$fixture/stderr" || fail "missing not-found diagnostic for task"
+[[ ! -s "$fixture/stdout" ]] || fail "error printed success output"
+[[ "$(cat "$TERMDECK_GLOBAL_COMMANDS")" == "$before_global" ]] || fail "commands file changed"
+[[ "$(cat "$TERMDECK_GLOBAL_TASKFILE")" == "$before_taskfile" ]] || fail "taskfile changed"
+
+# missing global taskfile -> error, exit 1
+rm -f "$TERMDECK_GLOBAL_TASKFILE"
+"$root/bin/termdeck" run --global --name demo >"$fixture/stdout" 2>"$fixture/stderr" && fail "missing taskfile should fail"
+[[ $? == 1 ]] || fail "unexpected status for missing taskfile"
+[[ ! -s "$fixture/stdout" ]] || fail "error printed success output"
+
+# no local Taskfile in PWD -> error, exit 1
+(cd "$fixture/home" && "$root/bin/termdeck" run --local --name test >"$fixture/stdout" 2>"$fixture/stderr") && fail "no local Taskfile should fail"
+[[ $? == 1 ]] || fail "unexpected status for missing local taskfile"
+[[ ! -s "$fixture/stdout" ]] || fail "error printed success output"
+
+# failing task propagates a non-zero exit status. Note: Task itself exits 201
+# whenever a task command fails, regardless of the task's own exit code, so run
+# propagates task's status (201 here) rather than the underlying task code.
+"$root/bin/termdeck" run --local --name fails >"$fixture/stdout" 2>"$fixture/stderr" && fail "failing task should fail"
+status=$?
+[[ $status != 0 ]] || fail "task failure should make run exit non-zero (got $status)"
+
+# successful task run is read-only: taskfile entries/version unchanged
+cp Taskfile.yml "$fixture/taskfile-before"
+"$root/bin/termdeck" run --local --name test >/dev/null 2>&1
+[[ "$(cat Taskfile.yml)" == "$(cat "$fixture/taskfile-before")" ]] || fail "taskfile changed after run"
 
 printf 'run tests passed\n'
