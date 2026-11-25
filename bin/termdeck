@@ -352,8 +352,10 @@ try:
     with open(path, encoding="utf-8") as handle:
         document = yaml.safe_load(handle) or {}
 except FileNotFoundError:
-    print(f"termdeck: command not found: {name}", file=sys.stderr)
-    raise SystemExit(1)
+    # Absent saved-commands file: soft miss so the caller falls back to
+    # Taskfile tasks. No diagnostic is emitted here; the final not-found
+    # message is printed only after both commands and tasks are exhausted.
+    raise SystemExit(2)
 except (OSError, yaml.YAMLError) as exc:
     print(f"termdeck: cannot read {path}: {exc}", file=sys.stderr)
     raise SystemExit(1)
@@ -389,6 +391,11 @@ PY
 
   # Not a saved command: try a Taskfile task in the same scope. Read-only,
   # output passes through, and the task's own exit status is propagated.
+  # Task-specific dependencies are checked here (after the saved-command
+  # lookup misses) so a saved command still runs on a PATH with only Bash
+  # and Python/PyYAML.
+  require_command task
+  require_command jq
   if [[ "$scope" == global ]]; then
     taskfile=$GLOBAL_TASKFILE
   else
@@ -777,8 +784,6 @@ main() {
       ;;
     run)
       require_command python3
-      require_command task
-      require_command jq
       python3 -c 'import yaml' >/dev/null 2>&1 || die 'Python package PyYAML is required'
       shift
       run_command "$@"

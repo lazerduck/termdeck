@@ -245,4 +245,63 @@ cp Taskfile.yml "$fixture/taskfile-before"
 "$root/bin/termdeck" run --local --name test >/dev/null 2>&1
 [[ "$(cat Taskfile.yml)" == "$(cat "$fixture/taskfile-before")" ]] || fail "taskfile changed after run"
 
+# missing global commands file permits task fallback (command file absent, task present)
+cat > "$TERMDECK_GLOBAL_TASKFILE" <<'YAML'
+version: '3'
+tasks:
+  demo:
+    desc: Global demo task
+    cmds:
+      - echo global-task
+YAML
+rm -f "$TERMDECK_GLOBAL_COMMANDS"
+output=$("$root/bin/termdeck" run --global --name demo)
+[[ "$output" == global-task ]] || fail "missing global commands file should fall back to task: $output"
+[[ ! -e "$TERMDECK_GLOBAL_COMMANDS" ]] || fail "run created a missing global commands file"
+
+# missing local commands file permits task fallback
+cat > Taskfile.yml <<'YAML'
+version: '3'
+tasks:
+  test:
+    desc: Local test task
+    cmds:
+      - echo local-task
+YAML
+rm -f "$TERMDECK_LOCAL_COMMANDS"
+output=$("$root/bin/termdeck" run --local --name test)
+[[ "$output" == local-task ]] || fail "missing local commands file should fall back to task: $output"
+[[ ! -e "$TERMDECK_LOCAL_COMMANDS" ]] || fail "run created a missing local commands file"
+
+# minimal PATH: a saved command still runs without task or jq
+minbin=$fixture/minbin
+mkdir -p "$minbin"
+ln -s "$(command -v bash)" "$minbin/bash"
+ln -s "$(command -v python3)" "$minbin/python3"
+reset_files
+output=$(PATH="$minbin" "$root/bin/termdeck" run --global --name Target)
+[[ "$output" == ran-target ]] || fail "saved command should run without task/jq: $output"
+
+# task fallback requires task: clear dependency error, not a silent miss
+rm -f "$TERMDECK_GLOBAL_COMMANDS"
+cat > "$TERMDECK_GLOBAL_TASKFILE" <<'YAML'
+version: '3'
+tasks:
+  demo:
+    desc: Global demo task
+    cmds:
+      - echo global-task
+YAML
+PATH="$minbin" "$root/bin/termdeck" run --global --name demo >"$fixture/stdout" 2>"$fixture/stderr" && fail "task fallback without task should fail"
+[[ $? == 1 ]] || fail "unexpected status without task: $?"
+grep -Fq "required command not found: task" "$fixture/stderr" || fail "missing task dependency diagnostic"
+[[ ! -s "$fixture/stdout" ]] || fail "error printed success output"
+
+# task fallback requires jq
+ln -s "$(command -v task)" "$minbin/task"
+PATH="$minbin" "$root/bin/termdeck" run --global --name demo >"$fixture/stdout" 2>"$fixture/stderr" && fail "task fallback without jq should fail"
+[[ $? == 1 ]] || fail "unexpected status without jq: $?"
+grep -Fq "required command not found: jq" "$fixture/stderr" || fail "missing jq dependency diagnostic"
+[[ ! -s "$fixture/stdout" ]] || fail "error printed success output"
+
 printf 'run tests passed\n'

@@ -93,6 +93,8 @@ termdeck add --local --name 'Start development' --command 'npm run dev'
 termdeck delete --global --name 'Docker: list all'
 termdeck run --global --name 'Docker: list all'
 termdeck run --global --name 'docker:list-all'
+termdeck run --global --name 'demo'
+termdeck run --local --name 'test'
 termdeck reorder --global --name 'Docker: list all' --first
 termdeck reorder --local --name 'Start development' --down
 termdeck update
