@@ -322,7 +322,7 @@ PY
 # commands file. Exits with the command's own exit status so scripts can branch
 # on failure; prints nothing of its own so command output can be captured.
 run_command() {
-  local scope= name= file
+  local scope= name= file taskfile= task_names= status=
   local have_global=false have_local=false
 
   while (($#)); do
@@ -352,8 +352,10 @@ try:
     with open(path, encoding="utf-8") as handle:
         document = yaml.safe_load(handle) or {}
 except FileNotFoundError:
-    print(f"termdeck: command not found: {name}", file=sys.stderr)
-    raise SystemExit(1)
+    # Absent saved-commands file: soft miss so the caller falls back to
+    # Taskfile tasks. No diagnostic is emitted here; the final not-found
+    # message is printed only after both commands and tasks are exhausted.
+    raise SystemExit(2)
 except (OSError, yaml.YAMLError) as exc:
     print(f"termdeck: cannot read {path}: {exc}", file=sys.stderr)
     raise SystemExit(1)
@@ -371,12 +373,50 @@ for entry in document["commands"]:
         print(command)
         raise SystemExit(0)
 
-print(f"termdeck: command not found: {name}", file=sys.stderr)
-raise SystemExit(1)
+# Name is absent from the saved commands: signal a soft miss so the caller can
+# fall back to Taskfile tasks. Commands take precedence on a name collision.
+raise SystemExit(2)
 PY
-  ) || return $?
+  )
+  status=$?
+  if [[ $status -eq 0 ]]; then
+    builtin eval -- "$command"
+    return $?
+  fi
+  if [[ $status -ne 2 ]]; then
+    # A hard failure (missing/unreadable/malformed commands file): its
+    # diagnostic is already on stderr. Do not fall through to tasks.
+    return "$status"
+  fi
 
-  builtin eval -- "$command"
+  # Not a saved command: try a Taskfile task in the same scope. Read-only,
+  # output passes through, and the task's own exit status is propagated.
+  # Task-specific dependencies are checked here (after the saved-command
+  # lookup misses) so a saved command still runs on a PATH with only Bash
+  # and Python/PyYAML.
+  require_command task
+  require_command jq
+  if [[ "$scope" == global ]]; then
+    taskfile=$GLOBAL_TASKFILE
+  else
+    taskfile=$(find_local_taskfile) || die "no Taskfile found in $PWD"
+  fi
+  [[ -f "$taskfile" ]] || die "command not found: $name"
+
+  if ! task_names=$(task --taskfile "$taskfile" --list-all --json --no-status --sort alphanumeric | jq -r '.tasks[].name // empty'); then
+    die "cannot list tasks from $taskfile"
+  fi
+
+  if printf '%s\n' "$task_names" | grep -Fxq -- "$name"; then
+    if [[ "$scope" == global ]]; then
+      task --taskfile "$taskfile" "$name"
+    else
+      task --dir "$PWD" "$name"
+    fi
+    return $?
+  fi
+
+  die "command not found: $name"
 }
 
 # Confirm deletion of a saved command from the picker. Presents the command's
@@ -659,7 +699,7 @@ Usage: $PROGRAM [pick|list|add|reorder|delete|run|update|setup|doctor|version]
   list    Print the merged global and local catalog
   add     Add or update a Termdeck command
   delete  Delete a saved command with --global/--local and --name
-  run     Run a saved global or local command by name
+  run     Run a saved global or local command or task by name
   reorder Move a saved command with --up, --down, --first, or --last
   update  Install the latest Termdeck release and report the version change
   setup   Configure Bash and Kitty integration
