@@ -50,6 +50,41 @@ grep -F $'Local command\x1fFriendly greeting\x1f\x1fecho hi' <<< "$output" >/dev
 ! grep -F $'Local command\x1fProject greeting\x1f' <<< "$output" >/dev/null
 [[ $(grep -Fc $'Global command\x1fSaved status\x1f' <<< "$output") -eq 1 ]]
 
+# list --global: global sources only, no local lines
+output=$(cd "$fixture/project" && XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" list --global)
+grep -F $'Global command\x1fSaved status\x1f\x1fgit status' <<< "$output" >/dev/null
+grep -F $'Global task\x1fdocker:list-all\x1fDocker: list all containers' <<< "$output" >/dev/null
+! grep -F 'Local' <<< "$output" >/dev/null
+
+# list --local: local sources only, no global lines
+output=$(cd "$fixture/project" && XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" list --local)
+grep -F $'Local command\x1fFriendly greeting\x1f\x1fecho hi' <<< "$output" >/dev/null
+grep -F $'Local task\x1ftest\x1fRun the tests' <<< "$output" >/dev/null
+! grep -F 'Global' <<< "$output" >/dev/null
+
+# list --global --local: all sources, same as no flags
+output=$(cd "$fixture/project" && XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" list --global --local)
+grep -F $'Global command\x1fSaved status\x1f' <<< "$output" >/dev/null
+grep -F $'Local task\x1ftest\x1fRun the tests' <<< "$output" >/dev/null
+
+# unknown list option: exit 1, diagnostic on stderr, no stdout
+if XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" list --bogus >"$fixture/list-out" 2>"$fixture/list-err"; then
+  echo "list --bogus should fail" >&2
+  exit 1
+fi
+[[ ! -s "$fixture/list-out" ]] || { echo "list --bogus printed stdout" >&2; exit 1; }
+grep -F 'unknown list option: --bogus' "$fixture/list-err" >/dev/null || { echo "missing unknown list option diagnostic" >&2; exit 1; }
+
+# list --local with no local command file and no local Taskfile: no output, exit 0
+mkdir -p "$fixture/empty"
+output=$(cd "$fixture/empty" && XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" list --local)
+[[ -z "$output" ]] || { echo "list --local without local files should print nothing: $output" >&2; exit 1; }
+
+# list --global with no global files: no output, exit 0
+mkdir -p "$fixture/nowhere"
+output=$(cd "$fixture/nowhere" && HOME="$fixture/nowhere" XDG_CONFIG_HOME="$fixture/nowhere" "$root/bin/termdeck" list --global 2>"$fixture/list-err2")
+[[ -z "$output" ]] || { echo "list --global without global files should print nothing: $output" >&2; exit 1; }
+
 cat > "$fixture/bin/fzf" <<'BASH'
 #!/usr/bin/env bash
 input=$(cat)

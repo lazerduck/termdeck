@@ -541,16 +541,21 @@ update_termdeck() {
 }
 
 catalog() {
+  local show_global=${1:-1} show_local=${2:-1}
   local local_taskfile
 
-  commands_from 'Global command' "$GLOBAL_COMMANDS" || return
-  commands_from 'Local command' "$LOCAL_COMMANDS" || return
+  if (( show_global )); then
+    commands_from 'Global command' "$GLOBAL_COMMANDS" || return
+  fi
+  if (( show_local )); then
+    commands_from 'Local command' "$LOCAL_COMMANDS" || return
+  fi
 
-  if [[ -f "$GLOBAL_TASKFILE" ]]; then
+  if [[ -f "$GLOBAL_TASKFILE" ]] && (( show_global )); then
     tasks_from 'Global task' "$GLOBAL_TASKFILE" || return
   fi
 
-  if local_taskfile=$(find_local_taskfile); then
+  if local_taskfile=$(find_local_taskfile) && (( show_local )); then
     tasks_from 'Local task' "$local_taskfile" || return
   fi
 }
@@ -696,7 +701,7 @@ usage() {
 Usage: $PROGRAM [pick|list|add|reorder|delete|run|update|setup|doctor|version]
 
   pick    Open the command palette and run the selected task (default)
-  list    Print the merged global and local catalog
+  list    Print the merged global and local catalog (--global/--local to filter by source)
   add     Add or update a Termdeck command
   delete  Delete a saved command with --global/--local and --name
   run     Run a saved global or local command or task by name
@@ -762,7 +767,21 @@ main() {
     list)
       require_command task
       require_command jq
-      catalog
+      shift
+      local show_global=0 show_local=0 specified=0
+      while (($#)); do
+        case $1 in
+          --global) show_global=1; specified=1 ;;
+          --local) show_local=1; specified=1 ;;
+          *) die "unknown list option: $1" ;;
+        esac
+        shift
+      done
+      if ! (( specified )); then
+        show_global=1
+        show_local=1
+      fi
+      catalog "$show_global" "$show_local"
       ;;
     add)
       require_command python3

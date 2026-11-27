@@ -78,7 +78,9 @@ termdeck delete            Delete a saved command by name (non-interactive)
 termdeck run                Run a saved command by name (non-interactive)
 termdeck reorder           Move a saved command within its global or local list
 termdeck update            Install the latest release and report its version
-termdeck list              Print the merged catalog
+termdeck list              Print the merged global and local catalog
+termdeck list --global     Global commands and tasks only
+termdeck list --local      Local commands and tasks only
 termdeck setup             Configure Bash and Kitty
 termdeck setup --dry-run   Preview setup changes
 termdeck doctor            Check dependencies and configuration
@@ -95,6 +97,9 @@ termdeck run --global --name 'Docker: list all'
 termdeck run --global --name 'docker:list-all'
 termdeck run --global --name 'demo'
 termdeck run --local --name 'test'
+termdeck list                   # all sources
+termdeck list --local           # this project's commands and tasks only
+termdeck list --global          # globally saved commands and tasks only
 termdeck reorder --global --name 'Docker: list all' --first
 termdeck reorder --local --name 'Start development' --down
 termdeck update
