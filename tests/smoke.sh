@@ -54,13 +54,19 @@ grep -F $'Local command\x1fFriendly greeting\x1f\x1fecho hi' <<< "$output" >/dev
 output=$(cd "$fixture/project" && XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" list --global)
 grep -F $'Global command\x1fSaved status\x1f\x1fgit status' <<< "$output" >/dev/null
 grep -F $'Global task\x1fdocker:list-all\x1fDocker: list all containers' <<< "$output" >/dev/null
-! grep -F 'Local' <<< "$output" >/dev/null
+if grep -Fq $'Local command\x1f' <<< "$output" || grep -Fq $'Local task\x1f' <<< "$output"; then
+  echo "list --global must not emit Local command or Local task entries" >&2
+  exit 1
+fi
 
 # list --local: local sources only, no global lines
 output=$(cd "$fixture/project" && XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" list --local)
 grep -F $'Local command\x1fFriendly greeting\x1f\x1fecho hi' <<< "$output" >/dev/null
 grep -F $'Local task\x1ftest\x1fRun the tests' <<< "$output" >/dev/null
-! grep -F 'Global' <<< "$output" >/dev/null
+if grep -Fq $'Global command\x1f' <<< "$output" || grep -Fq $'Global task\x1f' <<< "$output"; then
+  echo "list --local must not emit Global command or Global task entries" >&2
+  exit 1
+fi
 
 # list --global --local: all sources, same as no flags
 output=$(cd "$fixture/project" && XDG_CONFIG_HOME="$fixture/config" "$root/bin/termdeck" list --global --local)
